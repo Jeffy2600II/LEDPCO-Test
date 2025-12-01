@@ -5,15 +5,15 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy",
-    "build": "tsc"
+    "build": "tsc && cp public/index.html dist/",
+    "deploy": "wrangler deploy"
   },
   "dependencies": {
     "itty-router": "^4.0.0"
   },
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20250101.0",
-    "typescript": "^5.3.3",
-    "wrangler": "^3.28.0"
+    "@cloudflare/workers-types": "^4.20251128.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^3.114.15"
   }
 }
