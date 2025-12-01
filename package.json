@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "tsc && cp public/index.html dist/",
+    "build": "tsc",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
