@@ -1,0 +1,14 @@
+name = "line-bot-broadcaster"
+main = "src/index.ts"
+compatibility_date = "2025-11-20"
+
+[env.production]
+vars = { ENVIRONMENT = "production" }
+
+[env. development]
+vars = { ENVIRONMENT = "development" }
+
+[[env.production. d1. bindings]]
+name = "LINE_CHANNEL_ACCESS_TOKEN"
+[[env.production.d1.bindings]]
+name = "LINE_CHANNEL_SECRET"
