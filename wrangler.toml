@@ -1,11 +1,6 @@
 name = "ledpco-test"
-type = "javascript"
 main = "dist/index.js"
 compatibility_date = "2025-11-20"
 
-[build]
-command = "npm run build"
-cwd = ". /"
-
-[env.production]
+[env. production]
 vars = { ENVIRONMENT = "production" }
