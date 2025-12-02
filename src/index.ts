@@ -24,7 +24,7 @@ const isConfigValid = validateConfig();
 
 // สร้าง Express App
 const app: Express = express();
-const port = config.server.port;
+const port = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
 // Middleware
 app.use(cors());
@@ -125,9 +125,10 @@ setInterval(() => {
   botConnection.uptime = process.uptime() * 1000;
 }, 1000);
 
-// Start Server
-app.listen(port, () => {
-  console.log(`
+// Start Server (for local development)
+if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`
 ╔════════════════════════════════════════╗
 ║   🤖 Line Bot Dashboard Server         ║
 ╠════════════════════════════════════════╣
@@ -139,7 +140,8 @@ app.listen(port, () => {
 ║   Status: ${botConnection.isConnected ? '🟢 Connected' : '🔴 Not Connected'}
 ║   Config Valid: ${isConfigValid ? '✅ Yes' : '❌ No'}
 ╚════════════════════════════════════════╝
-  `);
-});
+    `);
+  });
+}
 
 export { app };
