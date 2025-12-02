@@ -31,23 +31,32 @@ export default async function handler(req, res) {
       const nowIso = new Date().toISOString();
       await setLastWebhook(nowIso);
       
-      for (const ev of body.events) {
+      // prepare array of operations to parallelize replies
+      const replyTasks = body.events.map(async (ev) => {
         if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
           const userText = ev.message.text;
           const replyToken = ev.replyToken;
           let replyText = handleTextMessage(userText);
+          
           if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
             const statusObj = await getStatus();
-            replyText = statusObj.lastWebhookAt ? `Last webhook received at: ${statusObj.lastWebhookAt}` : 'ยังไม่พบการเชื่อมต่อจาก LINE';
+            replyText = statusObj.lastWebhookAt ?
+              `ล่าสุดระบบได้รับ Webhook เมื่อ: ${statusObj.lastWebhookAt}` :
+              'ยังไม่พบการเชื่อมต่อจาก LINE';
           }
           if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-            await replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+            // ไม่ต้อง await ทีละตัว ทำแบบ parallel
+            return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
           }
         }
-      }
+      });
+      
+      // รอให้ทุกอัน reply เสร็จ (parallelizes tasks)
+      await Promise.all(replyTasks);
     }
     return res.status(200).send('OK');
   } catch (err) {
-    return res.status(500).send('Server error');
+    console.error('Webhook Server Error:', err);
+    return res.status(500).send('Server error: ' + (err?.message || 'unknown'));
   }
 }
