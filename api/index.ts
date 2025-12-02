@@ -1,8 +1,8 @@
 import type { VercelRequest, VercelResponse } from '@vercel/node';
 import { app } from '../src/index';
 
-// Vercel expects a handler function for API routes.
-// Wrap the express app so Vercel executes it as a serverless handler.
+// Vercel API routes expect a function (req, res).
+// Wrap the Express app so Vercel executes it as a serverless handler.
 export default async (req: VercelRequest, res: VercelResponse) => {
   try {
     return (app as any)(req, res);
