@@ -8,8 +8,11 @@ interface Env {
 // เก็บ User IDs ไว้ในหน่วยความจำ
 const userIds = new Set<string>();
 
+// เก็บข้อมูลบอท
+let botInfo: { displayName: string; userId: string } | null = null;
+
 // HTML สำหรับเว็บ
-const HTML_CONTENT = `<! DOCTYPE html>
+const HTML_CONTENT = `<!  DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -52,9 +55,73 @@ const HTML_CONTENT = `<! DOCTYPE html>
       font-size: 28px;
     }
 
-    . header p {
+    .  header p {
       color: #666;
       font-size: 14px;
+    }
+
+    .status-box {
+      padding: 20px;
+      background: #f5f5f5;
+      border-radius: 8px;
+      margin-bottom: 25px;
+      text-align: center;
+    }
+
+    .status-box. connected {
+      background: #d4edda;
+      border: 2px solid #28a745;
+    }
+
+    .status-box.disconnected {
+      background: #f8d7da;
+      border: 2px solid #dc3545;
+    }
+
+    .status-icon {
+      font-size: 32px;
+      margin-bottom: 10px;
+    }
+
+    .status-text {
+      font-size: 14px;
+      color: #666;
+      margin-bottom: 10px;
+    }
+
+    .status-box.connected .status-text {
+      color: #155724;
+    }
+
+    . status-box.disconnected .status-text {
+      color: #721c24;
+    }
+
+    .bot-info {
+      margin-top: 15px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.7);
+      border-radius: 6px;
+      font-size: 12px;
+      font-family: monospace;
+      line-height: 1.8;
+    }
+
+    .bot-info strong {
+      color: #333;
+      display: block;
+      margin-top: 5px;
+    }
+
+    . bot-info strong:first-child {
+      margin-top: 0;
+    }
+
+    .bot-info code {
+      background: #f0f0f0;
+      padding: 3px 6px;
+      border-radius: 3px;
+      word-break: break-all;
     }
 
     .form-group {
@@ -191,6 +258,34 @@ const HTML_CONTENT = `<! DOCTYPE html>
     .command-list strong:first-child {
       margin-top: 0;
     }
+
+    .stats {
+      margin-top: 20px;
+      padding: 15px;
+      background: #e8f5e9;
+      border-left: 4px solid #4caf50;
+      border-radius: 4px;
+      font-size: 13px;
+      color: #2e7d32;
+    }
+
+    .stats strong {
+      display: block;
+      font-size: 16px;
+      margin-bottom: 5px;
+    }
+
+    . refresh-btn {
+      margin-top: 10px;
+      padding: 8px 16px;
+      background: #2196F3;
+      font-size: 12px;
+      width: auto;
+    }
+
+    .refresh-btn:hover {
+      background: #1976D2;
+    }
   </style>
 </head>
 <body>
@@ -200,6 +295,22 @@ const HTML_CONTENT = `<! DOCTYPE html>
       <p>ส่งข้อความ Broadcast ผ่านระบบคำสั่ง</p>
     </div>
 
+    <!-- ✅ Status Box -->
+    <div id="statusBox" class="status-box disconnected">
+      <div class="status-icon" id="statusIcon">⚠️</div>
+      <div class="status-text">
+        <strong>ความสถานะ:</strong>
+        <span id="statusText">กำลังตรวจสอบการเชื่อมต่อ...</span>
+      </div>
+      <div id="botDetails" class="bot-info" style="display: none;">
+        <strong>✅ เชื่อมต่อสำเร็จ</strong>
+        <strong>ชื่อบอท: <code id="botName"></code></strong>
+        <strong>ID บอท: <code id="botId"></code></strong>
+        <strong>จำนวนผู้ใช้: <span id="userCount">0</span></strong>
+      </div>
+    </div>
+
+    <!-- ✅ Broadcast Form -->
     <form id="broadcastForm">
       <div class="form-group">
         <label for="message">ข้อความที่ต้องการส่ง:</label>
@@ -214,14 +325,22 @@ const HTML_CONTENT = `<! DOCTYPE html>
       <button type="submit" id="sendBtn">ส่งข้อความ Broadcast</button>
     </form>
 
-    <div id="status"></div>
+    <div id="message"></div>
 
+    <!-- ✅ Stats -->
+    <div class="stats">
+      <strong>📊 สถิติ</strong>
+      <div>ผู้ใช้ที่เชื่อมต่อ: <span id="statsUsers">0</span> คน</div>
+      <button type="button" class="refresh-btn" onclick="checkStatus()">🔄 ตรวจสอบสถานะ</button>
+    </div>
+
+    <!-- ✅ Commands -->
     <div class="command-list">
       <strong>📝 คำสั่ง Line Bot:</strong>
       <code>/help</code> - ดูรายการคำสั่ง<br>
       <code>/status</code> - ดูจำนวนผู้ใช้<br>
       <code>/broadcast ข้อความ</code> - ส่งข้อความ Broadcast<br>
-      <code>/echo ข้อความ</code> - ตอบกลับข้อความที่ส่ง
+      <code>/echo ข้อความ</code> - ตอบกลับข้อความ
     </div>
 
     <div class="info-box">
@@ -234,10 +353,62 @@ const HTML_CONTENT = `<! DOCTYPE html>
   </div>
 
   <script>
+    // ✅ ตรวจสอบสถานะเมื่อโหลดหน้า
+    window.addEventListener('load', checkStatus);
+
+    async function checkStatus() {
+      try {
+        const response = await fetch('/api/status');
+        const data = await response.json();
+
+        const statusBox = document.getElementById('statusBox');
+        const statusIcon = document.getElementById('statusIcon');
+        const statusText = document. getElementById('statusText');
+        const botDetails = document.getElementById('botDetails');
+        const botName = document.getElementById('botName');
+        const botId = document.getElementById('botId');
+        const userCount = document.getElementById('userCount');
+        const statsUsers = document.getElementById('statsUsers');
+
+        if (data.connected) {
+          // ✅ เชื่อมต่อสำเร็จ
+          statusBox.classList.remove('disconnected');
+          statusBox.classList.add('connected');
+          statusIcon.textContent = '✅';
+          statusText.textContent = 'เชื่อมต่อกับ Line Bot สำเร็จแล้ว! ';
+          
+          botName.textContent = data.botInfo.displayName;
+          botId.textContent = data.botInfo.userId;
+          userCount.textContent = data.activeUsers;
+          statsUsers.textContent = data.activeUsers;
+          
+          botDetails.style.display = 'block';
+          document.getElementById('sendBtn').disabled = false;
+        } else {
+          // ❌ ยังไม่เชื่อมต่อ
+          statusBox.classList.add('disconnected');
+          statusBox.classList. remove('connected');
+          statusIcon.textContent = '❌';
+          statusText.textContent = 'ยังไม่เชื่อมต่อกับ Line Bot';
+          botDetails.style.display = 'none';
+          statsUsers.textContent = '0';
+          document.getElementById('sendBtn').disabled = true;
+        }
+      } catch (error) {
+        console.error('Error checking status:', error);
+        const statusBox = document.getElementById('statusBox');
+        statusBox.classList.add('disconnected');
+        statusBox.classList. remove('connected');
+        document.getElementById('statusIcon').textContent = '⚠️';
+        document. getElementById('statusText').textContent = 'เกิดข้อผิดพลาดในการตรวจสอบสถานะ';
+      }
+    }
+
+    // ✅ Send Broadcast
     const form = document.getElementById('broadcastForm');
     const messageInput = document.getElementById('message');
     const sendBtn = document. getElementById('sendBtn');
-    const statusDiv = document.getElementById('status');
+    const messageDiv = document.getElementById('message');
 
     form.addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -245,12 +416,12 @@ const HTML_CONTENT = `<! DOCTYPE html>
       const message = messageInput.value.trim();
 
       if (!message) {
-        showStatus('กรุณาพิมพ์ข้อความก่อน', 'error');
+        showMessage('กรุณาพิมพ์ข้อความก่อน', 'error');
         return;
       }
 
       sendBtn.disabled = true;
-      showStatus('<span class="spinner"></span>กำลังส่งข้อความ...', 'loading');
+      showMessage('<span class="spinner"></span>กำลังส่งข้อความ...', 'loading');
 
       try {
         const response = await fetch('/api/broadcast', {
@@ -264,24 +435,25 @@ const HTML_CONTENT = `<! DOCTYPE html>
         const data = await response.json();
 
         if (response.ok) {
-          showStatus(
+          showMessage(
             \`✅ ส่งข้อความสำเร็จ!  (ส่งไปให้ \${data.sentTo} คน)\`,
             'success'
           );
           messageInput.value = '';
+          checkStatus();
         } else {
-          showStatus(\`❌ เกิดข้อผิดพลาด: \${data.error}\`, 'error');
+          showMessage(\`❌ เกิดข้อผิดพลาด: \${data.error}\`, 'error');
         }
       } catch (error) {
-        showStatus(\`❌ เกิดข้อผิดพลาด: \${error.message}\`, 'error');
+        showMessage(\`❌ เกิดข้อผิดพลาด: \${error.message}\`, 'error');
       } finally {
         sendBtn.disabled = false;
       }
     });
 
-    function showStatus(message, type) {
-      statusDiv.className = \`status \${type}\`;
-      statusDiv.innerHTML = message;
+    function showMessage(text, type) {
+      messageDiv.className = \`status \${type}\`;
+      messageDiv.innerHTML = text;
     }
   </script>
 </body>
@@ -301,11 +473,17 @@ router.post('/webhook', async (request: Request, env: Env) => {
   try {
     const body = await request.json() as any;
     
+    // ✅ ดึงข้อมูลบอทครั้งแรก
+    if (! botInfo) {
+      botInfo = await getBotInfo(env);
+      console.log('Bot Info loaded:', botInfo);
+    }
+    
     if (body.events && Array.isArray(body.events)) {
       for (const event of body.events) {
         // เก็บ User ID เมื่อ follow
         if (event.type === 'follow') {
-          userIds.add(event.source. userId);
+          userIds.add(event.source.  userId);
           console.log('User followed:', event.source.userId);
           
           // ตอบกลับการ follow
@@ -314,12 +492,12 @@ router.post('/webhook', async (request: Request, env: Env) => {
         // ลบ User ID เมื่อ unfollow
         else if (event.type === 'unfollow') {
           userIds.delete(event.source.userId);
-          console.log('User unfollowed:', event.source. userId);
+          console.log('User unfollowed:', event.source.  userId);
         } 
         // จัดการคำสั่งจากข้อความ
-        else if (event.type === 'message' && event.message.type === 'text') {
+        else if (event. type === 'message' && event.message.type === 'text') {
           const userId = event.source.userId;
-          const text = event.message.text. trim();
+          const text = event.message.text.  trim();
 
           userIds.add(userId);
 
@@ -334,22 +512,22 @@ router.post('/webhook', async (request: Request, env: Env) => {
             await sendMessage(userId, statusMessage, env);
           }
           // ✅ /broadcast ข้อความ - ส่ง broadcast
-          else if (text. startsWith('/broadcast ')) {
+          else if (text.  startsWith('/broadcast ')) {
             const broadcastText = text.substring('/broadcast '.length);
-            if (broadcastText.trim(). length === 0) {
+            if (broadcastText.trim().  length === 0) {
               await sendMessage(userId, '❌ กรุณาระบุข้อความ เช่น: /broadcast สวัสดี', env);
             } else {
               // ส่ง broadcast ไปทุกคน
-              const promises = Array.from(userIds). map(uid =>
+              const promises = Array.from(userIds).  map(uid =>
                 sendMessage(uid, `📢 Broadcast: ${broadcastText}`, env)
               );
               await Promise.all(promises);
-              await sendMessage(userId, `✅ ส่ง Broadcast ไปให้ ${userIds.size} คนแล้ว! `, env);
+              await sendMessage(userId, `✅ ส่ง Broadcast ไปให้ ${userIds.size} คนแล้ว!  `, env);
             }
           }
           // ✅ /echo ข้อความ - ตอบกลับข้อความ
-          else if (text.startsWith('/echo ')) {
-            const echoText = text.substring('/echo '. length);
+          else if (text. startsWith('/echo ')) {
+            const echoText = text. substring('/echo '.  length);
             if (echoText.trim().length === 0) {
               await sendMessage(userId, '❌ กรุณาระบุข้อความ เช่น: /echo สวัสดี', env);
             } else {
@@ -357,7 +535,7 @@ router.post('/webhook', async (request: Request, env: Env) => {
             }
           }
           // ❌ คำสั่งไม่ถูกต้อง
-          else if (text. startsWith('/')) {
+          else if (text.  startsWith('/')) {
             await sendMessage(userId, `❌ คำสั่งไม่ถูกต้อง\nพิมพ์ /help เพื่อดูรายการคำสั่ง`, env);
           }
           // ข้อความธรรมดา - ไม่ตอบกลับ
@@ -394,7 +572,7 @@ router.post('/api/broadcast', async (request: Request, env: Env) => {
     }
 
     // ส่งข้อความไปทุกคน
-    const promises = Array.from(userIds).map(userId =>
+    const promises = Array.from(userIds). map(userId =>
       sendMessage(userId, `📢 Broadcast: ${message}`, env)
     );
 
@@ -420,19 +598,63 @@ router.post('/api/broadcast', async (request: Request, env: Env) => {
   }
 });
 
-// ✅ Get active users count
-router.get('/api/status', () => {
-  return new Response(
-    JSON.stringify({
-      activeUsers: userIds.size,
-      userIds: Array.from(userIds)
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
+// ✅ Get status - เช็คการเชื่อมต่อ
+router.get('/api/status', async (request: Request, env: Env) => {
+  try {
+    // ดึงข้อมูลบอทถ้ายังไม่มี
+    if (!botInfo) {
+      botInfo = await getBotInfo(env);
     }
-  );
+
+    return new Response(
+      JSON.stringify({
+        connected: botInfo !== null,
+        botInfo: botInfo,
+        activeUsers: userIds.size,
+        userIds: Array.from(userIds)
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  } catch (error) {
+    console.error('Status error:', error);
+    return new Response(
+      JSON.stringify({
+        connected: false,
+        error: 'Failed to get status'
+      }),
+      {
+        status: 500,
+        headers: { 'Content-Type': 'application/json' }
+      }
+    );
+  }
 });
+
+// ✅ Helper function - ดึงข้อมูลบอท
+async function getBotInfo(env: Env): Promise<{ displayName: string; userId: string } | null> {
+  try {
+    const response = await fetch('https://api.line.me/v2/bot/profile', {
+      headers: {
+        'Authorization': `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`
+      }
+    });
+
+    if (response.ok) {
+      const data = await response.json() as any;
+      return {
+        displayName: data.displayName,
+        userId: data.userId
+      };
+    }
+    return null;
+  } catch (error) {
+    console.error('Error getting bot info:', error);
+    return null;
+  }
+}
 
 // ✅ Helper function - ส่งข้อความไป Line
 async function sendMessage(userId: string, text: string, env: Env): Promise<void> {
