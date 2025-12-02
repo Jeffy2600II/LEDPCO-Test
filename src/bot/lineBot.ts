@@ -1,6 +1,6 @@
 import { middleware, MiddlewareConfig, MessageEvent } from '@line/bot-sdk';
 import { Client } from '@line/bot-sdk';
-import { CommandRegistry } from '../commands/commandRegistry. js';
+import { CommandRegistry } from '../commands/commandRegistry.js';
 import { config } from '../config/index.js';
 
 /**

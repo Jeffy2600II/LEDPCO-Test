@@ -1,4 +1,4 @@
-import { Command, CommandResult } from '../types/index. js';
+import { Command, CommandResult } from '../types/index.js';
 
 // คลาสจัดการคำสั่ง
 export class CommandRegistry {

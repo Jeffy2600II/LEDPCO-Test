@@ -1,6 +1,6 @@
 import express, { Express, Request, Response } from 'express';
 import cors from 'cors';
-import { config, validateConfig } from './config/index. js';
+import { config, validateConfig } from './config/index.js';
 import { CommandRegistry } from './commands/commandRegistry.js';
 import {
   helpCommand,
