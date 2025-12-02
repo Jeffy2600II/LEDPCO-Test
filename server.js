@@ -1,66 +1,54 @@
-// server.js - ใช้สำหรับรัน local ด้วย Express
-// สำหรับการทดสอบในเครื่อง (เช่น ngrok -> ให้ LINE webhook ชี้ไปที่ http://<ngrok-id>.ngrok.io/webhook)
+// server.js - รัน local ด้วย Express
+// ใช้สำหรับทดสอบ local (เช่น ngrok -> LINE webhook ชี้ไปที่ http://<ngrok-id>.ngrok.io/webhook)
 require('dotenv').config();
 const express = require('express');
 const crypto = require('crypto');
+const fetch = require('node-fetch');
+const path = require('path');
+const storage = require('./storage');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
-// เพื่อให้สามารถคำนวณ signature ได้อย่างถูกต้อง เราใช้ express.raw สำหรับ path /webhook
+// Serve static index.html at root
+app.use(express.static(path.join(__dirname)));
+
+// Need raw body for signature verification
 app.use('/webhook', express.raw({ type: '*/*' }));
-// หน้าอื่นๆ ใช้ body parser ปกติ
-app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 
-// ตัวแปรเก็บสถานะการเชื่อมต่อ (in-memory)
-let lastWebhookAt = null;
-
-// ฟังก์ชันช่วย: ตรวจสอบ signature ของ LINE
+// Verify LINE signature
 function verifySignature(rawBodyBuffer, signature) {
   const secret = process.env.LINE_CHANNEL_SECRET || '';
   const hash = crypto.createHmac('sha256', secret).update(rawBodyBuffer).digest('base64');
   return hash === signature;
 }
 
-// ฟังก์ชันช่วย: ตีความข้อความแบบ rule-based
+// Simple rule-based text handler
 function handleTextMessage(text) {
-  const t = text.trim();
-  
-  // ชุดคำสั่งพื้นฐาน
+  const t = String(text).trim();
   const lower = t.toLowerCase();
   
-  // HELP
   if (/^help$|^ช่วย$/.test(lower)) {
     return [
-      'คำสั่งที่รองรับแบบเบื้องต้น:',
-      '- help หรือ ช่วย -> รายการคำสั่ง',
-      "- ping -> pong",
-      "- สวัสดี -> ทักทาย",
-      "- echo <ข้อความ> -> ส่งข้อความกลับตามที่พิมพ์",
-      "- <a> บวก|ลบ|คูณ|หาร <b> หรือ ใช้ + - * / -> คำนวณพื้นฐาน",
-      "- สถานะ หรือ status -> เวลา last webhook ที่รับจาก LINE"
+      'รายการคำสั่ง:',
+      '- help หรือ ช่วย',
+      '- ping -> pong',
+      '- สวัสดี -> ทักทาย',
+      '- echo <ข้อความ> -> ส่งกลับ',
+      '- 2 + 3 หรือ 2 บวก 3 -> คำนวณพื้นฐาน',
+      '- status หรือ สถานะ -> เวลาการเชื่อมต่อล่าสุด'
     ].join('\n');
   }
   
-  if (/^ping$/.test(lower)) {
-    return 'pong';
-  }
-  
-  if (/สวัสดี|สวัสดีครับ|สวัสดีค่ะ/.test(t)) {
-    return 'สวัสดีครับ/ค่ะ! มีอะไรให้ช่วยไหมครับ?';
-  }
-  
-  if (/^echo\s+/i.test(t)) {
-    return t.replace(/^echo\s+/i, '');
-  }
-  
+  if (/^ping$/.test(lower)) return 'pong';
+  if (/สวัสดี|สวัสดีครับ|สวัสดีค่ะ/.test(t)) return 'สวัสดีครับ/ค่ะ! มีอะไรให้ช่วยไหมครับ?';
+  if (/^echo\s+/i.test(t)) return t.replace(/^echo\s+/i, '');
   if (/^สถานะ$|^status$/i.test(lower)) {
-    return lastWebhookAt ? `Last webhook received at: ${lastWebhookAt}` : 'ยังไม่พบการเชื่อมต่อจาก LINE';
+    return null; // handled separately to fetch live status
   }
   
-  // การคำนวณ: รองรับรูปแบบ "2 บวก 3", "5 * 6", "10 / 2"
-  // ตรวจจับภาษาไทย
+  // Thai text calc
   const thaiCalc = t.match(/^\s*([-]?\d+(?:\.\d+)?)\s*(บวก|ลบ|คูณ|หาร)\s*([-]?\d+(?:\.\d+)?)\s*$/);
   if (thaiCalc) {
     const a = parseFloat(thaiCalc[1]);
@@ -74,7 +62,7 @@ function handleTextMessage(text) {
     return String(res);
   }
   
-  // สัญลักษณ์คำนวณ
+  // Symbol calc
   const symbolCalc = t.match(/^\s*([-]?\d+(?:\.\d+)?)\s*([\+\-\*\/xX])\s*([-]?\d+(?:\.\d+)?)\s*$/);
   if (symbolCalc) {
     const a = parseFloat(symbolCalc[1]);
@@ -88,16 +76,14 @@ function handleTextMessage(text) {
     return String(res);
   }
   
-  // ค่าเริ่มต้น: ถ้าไม่รู้จักจะส่งข้อความแนะนำ
   return 'ขอโทษครับ ผมยังไม่เข้าใจคำสั่งนั้น พิมพ์ "help" หรือ "ช่วย" เพื่อดูคำสั่งที่รองรับ';
 }
 
-// Webhook endpoint for local testing
+// Webhook endpoint
 app.post('/webhook', async (req, res) => {
   try {
     const signature = req.headers['x-line-signature'] || '';
-    const rawBody = req.body; // express.raw set earlier
-    
+    const rawBody = req.body; // Buffer from express.raw
     if (!verifySignature(rawBody, signature)) {
       console.warn('Invalid signature');
       return res.status(401).send('Invalid signature');
@@ -105,30 +91,36 @@ app.post('/webhook', async (req, res) => {
     
     const bodyJson = JSON.parse(rawBody.toString('utf8'));
     if (bodyJson && Array.isArray(bodyJson.events)) {
-      // อัพเดตสถานะ last webhook
-      lastWebhookAt = new Date().toISOString();
+      const nowIso = new Date().toISOString();
+      await storage.setLastWebhook(nowIso);
       
-      // ประมวลผล events อย่างง่าย: เฉพาะ message text
       for (const ev of bodyJson.events) {
         if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
           const userText = ev.message.text;
           const replyToken = ev.replyToken;
-          const replyText = handleTextMessage(userText);
+          let replyText = handleTextMessage(userText);
           
-          // ส่ง reply กลับไปที่ LINE
-          const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-          if (token && replyToken) {
-            await fetch('https://api.line.me/v2/bot/message/reply', {
-              method: 'POST',
-              headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/json'
-              },
-              body: JSON.stringify({
-                replyToken,
-                messages: [{ type: 'text', text: replyText }]
-              })
-            });
+          if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
+            const statusObj = await storage.getStatus();
+            replyText = statusObj.lastWebhookAt ? `Last webhook received at: ${statusObj.lastWebhookAt}` : 'ยังไม่พบการเชื่อมต่อจาก LINE';
+          }
+          
+          if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+            try {
+              await fetch('https://api.line.me/v2/bot/message/reply', {
+                method: 'POST',
+                headers: {
+                  'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`,
+                  'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                  replyToken,
+                  messages: [{ type: 'text', text: replyText }]
+                })
+              });
+            } catch (err) {
+              console.warn('Failed to reply to LINE:', err && err.message);
+            }
           }
         }
       }
@@ -136,53 +128,21 @@ app.post('/webhook', async (req, res) => {
     
     return res.status(200).send('OK');
   } catch (err) {
-    console.error(err);
+    console.error('Webhook error:', err && err.stack ? err.stack : err);
     return res.status(500).send('Server error');
   }
 });
 
-// หน้าเว็บหลัก (HTML ปกติ ไม่มี JS)
-app.get('/', (req, res) => {
-  const last = lastWebhookAt ? lastWebhookAt : 'ยังไม่เคยได้รับ webhook จาก LINE';
-  const html = `<!doctype html>
-<html lang="th">
-<head>
-  <meta charset="utf-8">
-  <title>LINE Bot Status</title>
-  <style>
-    body { font-family: Arial, Helvetica, sans-serif; margin: 2rem; }
-    .card { border: 1px solid #ddd; padding: 1rem; border-radius: 6px; max-width: 800px; }
-    h1 { margin-top: 0; }
-    pre { background:#f8f8f8; padding:1rem; }
-  </style>
-</head>
-<body>
-  <div class="card">
-    <h1>สถานะ LINE Bot</h1>
-    <p>Last webhook: <strong>${last}</strong></p>
-    <h2>วิธีใช้</h2>
-    <p>ตั้งค่า webhook URL ให้ชี้มาที่:</p>
-    <pre>(ตัวอย่าง) https://YOUR_DOMAIN_OR_NGROK/api/webhook  หรือ  http://localhost:3000/webhook (สำหรับทดสอบ local)</pre>
-    <h3>คำสั่งพื้นฐานที่รองรับ</h3>
-    <ul>
-      <li>help / ช่วย</li>
-      <li>ping -> pong</li>
-      <li>สวัสดี -> ทักทาย</li>
-      <li>echo &lt;ข้อความ&gt; -> ส่งข้อความกลับ</li>
-      <li>2 บวก 3  หรือ  2 + 3 -> คำนวณพื้นฐาน</li>
-      <li>สถานะ / status -> เวลาการเชื่อมต่อล่าสุด</li>
-    </ul>
-    <p>หมายเหตุ: หน่วยความจำสถานะเป็นแบบชั่วคราว (in-memory) บนเครื่องที่รันโปรเซสนี้ ถ้าต้องการเก็บถาวรให้เชื่อมต่อฐานข้อมูล</p>
-  </div>
-</body>
-</html>`;
-  res.setHeader('Content-Type', 'text/html; charset=utf-8');
-  res.status(200).send(html);
+// Simple status route (JSON)
+app.get('/status', async (req, res) => {
+  const status = await storage.getStatus();
+  res.json(status);
 });
 
-// สำหรับ convenience: สร้าง route /status (json)
-app.get('/status', (req, res) => {
-  res.json({ lastWebhookAt });
+// Default fallback: serve index.html from root static (handled by express.static)
+// If not found, return 404
+app.use((req, res) => {
+  res.status(404).send('Not Found');
 });
 
 app.listen(PORT, () => {

@@ -1,11 +1,15 @@
 // api/webhook.js - Vercel Serverless function for LINE webhook
-// ใช้กับ Vercel: ให้ตั้ง Environment Variables LINE_CHANNEL_SECRET และ LINE_CHANNEL_ACCESS_TOKEN
-const { buffer } = require('micro'); // ใช้เพื่ออ่าน raw body สำหรับตรวจ signature
+const { buffer } = require('micro');
 const crypto = require('crypto');
 
-let lastWebhookAt = null; // เก็บสถานะในหน่วยความจำ (ไม่ถาวร ใน serverless อาจหายได้)
+// Use node's global fetch (Vercel supports fetch), but include fallback for older Node
+let fetcher = global.fetch;
+if (!fetcher) {
+  fetcher = require('node-fetch');
+}
 
-// ตรวจสอบ signature ด้วย HMAC SHA256
+const storage = require('../storage');
+
 function verifySignature(rawBodyBuffer, signature) {
   const secret = process.env.LINE_CHANNEL_SECRET || '';
   const hash = crypto.createHmac('sha256', secret).update(rawBodyBuffer).digest('base64');
@@ -13,28 +17,27 @@ function verifySignature(rawBodyBuffer, signature) {
 }
 
 function handleTextMessage(text) {
-  const t = text.trim();
+  const t = String(text).trim();
   const lower = t.toLowerCase();
   
   if (/^help$|^ช่วย$/.test(lower)) {
     return [
-      'คำสั่งที่รองรับแบบเบื้องต้น:',
-      '- help หรือ ช่วย -> รายการคำสั่ง',
-      "- ping -> pong",
-      "- สวัสดี -> ทักทาย",
-      "- echo <ข้อความ> -> ส่งข้อความกลับตามที่พิมพ์",
-      "- <a> บวก|ลบ|คูณ|หาร <b> หรือ ใช้ + - * / -> คำนวณพื้นฐาน",
-      "- สถานะ หรือ status -> เวลา last webhook ที่รับจาก LINE"
+      'รายการคำสั่ง:',
+      '- help หรือ ช่วย',
+      '- ping -> pong',
+      '- สวัสดี -> ทักทาย',
+      '- echo <ข้อความ> -> ส่งกลับ',
+      '- 2 + 3 หรือ 2 บวก 3 -> คำนวณพื้นฐาน',
+      '- status หรือ สถานะ -> เวลาการเชื่อมต่อล่าสุด'
     ].join('\n');
   }
   
   if (/^ping$/.test(lower)) return 'pong';
   if (/สวัสดี|สวัสดีครับ|สวัสดีค่ะ/.test(t)) return 'สวัสดีครับ/ค่ะ! มีอะไรให้ช่วยไหมครับ?';
   if (/^echo\s+/i.test(t)) return t.replace(/^echo\s+/i, '');
-  if (/^สถานะ$|^status$/i.test(lower)) {
-    return lastWebhookAt ? `Last webhook received at: ${lastWebhookAt}` : 'ยังไม่พบการเชื่อมต่อจาก LINE';
-  }
+  if (/^สถานะ$|^status$/i.test(lower)) return null;
   
+  // Thai calc
   const thaiCalc = t.match(/^\s*([-]?\d+(?:\.\d+)?)\s*(บวก|ลบ|คูณ|หาร)\s*([-]?\d+(?:\.\d+)?)\s*$/);
   if (thaiCalc) {
     const a = parseFloat(thaiCalc[1]);
@@ -72,7 +75,7 @@ module.exports = async (req, res) => {
   
   try {
     const sig = req.headers['x-line-signature'] || '';
-    const raw = await buffer(req); // Buffer
+    const raw = await buffer(req);
     if (!verifySignature(raw, sig)) {
       console.warn('Invalid signature');
       return res.status(401).send('Invalid signature');
@@ -81,31 +84,37 @@ module.exports = async (req, res) => {
     const bodyText = raw.toString('utf8');
     const body = JSON.parse(bodyText);
     
-    // อัพเดตสถานะ last webhook
-    lastWebhookAt = new Date().toISOString();
-    
-    // ประมวลผล events
     if (body && Array.isArray(body.events)) {
+      const nowIso = new Date().toISOString();
+      await storage.setLastWebhook(nowIso);
+      
       for (const ev of body.events) {
         if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
-          const replyToken = ev.replyToken;
           const userText = ev.message.text;
-          const replyText = handleTextMessage(userText);
+          const replyToken = ev.replyToken;
           
-          const token = process.env.LINE_CHANNEL_ACCESS_TOKEN;
-          if (token && replyToken) {
-            // ส่ง reply
-            await fetch('https://api.line.me/v2/bot/message/reply', {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${token}`
-              },
-              body: JSON.stringify({
-                replyToken,
-                messages: [{ type: 'text', text: replyText }]
-              })
-            });
+          let replyText = handleTextMessage(userText);
+          if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
+            const statusObj = await storage.getStatus();
+            replyText = statusObj.lastWebhookAt ? `Last webhook received at: ${statusObj.lastWebhookAt}` : 'ยังไม่พบการเชื่อมต่อจาก LINE';
+          }
+          
+          if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+            try {
+              await fetcher('https://api.line.me/v2/bot/message/reply', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${process.env.LINE_CHANNEL_ACCESS_TOKEN}`
+                },
+                body: JSON.stringify({
+                  replyToken,
+                  messages: [{ type: 'text', text: replyText }]
+                })
+              });
+            } catch (err) {
+              console.warn('Failed to reply to LINE:', err && err.message);
+            }
           }
         }
       }
@@ -113,7 +122,7 @@ module.exports = async (req, res) => {
     
     return res.status(200).send('OK');
   } catch (err) {
-    console.error('Webhook error:', err);
+    console.error('Webhook error:', err && err.stack ? err.stack : err);
     return res.status(500).send('Server error');
   }
 };

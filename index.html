@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="th">
+<head>
+  <meta charset="utf-8">
+  <title>LINE Bot Status</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 2rem; background:#f7f7f7; color:#222; }
+    .card { background:white; border: 1px solid #e0e0e0; padding: 1.2rem; border-radius: 6px; max-width: 900px; margin: 0 auto; }
+    h1 { margin-top: 0; }
+    pre { background:#fafafa; padding:0.8rem; border-radius:4px; overflow:auto; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LINE Bot — หน้าแสดงสถานะ (พื้นฐาน)</h1>
+    <p>หน้านี้เป็น HTML แบบปกติ (ไม่มี JavaScript) สำหรับแสดงคำแนะนำและสถานะแบบเบื้องต้น</p>
+
+    <h2>วิธีตรวจสอบการเชื่อมต่อ</h2>
+    <ol>
+      <li>ตั้งค่า Webhook URL ใน LINE Developer Console ให้ชี้ไปที่:
+        <pre>https://YOUR_PROJECT.vercel.app/api/webhook</pre>
+      </li>
+      <li>ส่งข้อความมาที่ bot แล้วตรวจดู Reply ใน LINE หรือดู Logs ใน Vercel (ถ้า deploy)</li>
+      <li>ถ้ารัน local ใช้ ngrok: e.g. <code>ngrok http 3000</code> แล้วตั้ง webhook เป็น <code>https://&lt;ngrok-id&gt;.ngrok.io/webhook</code></li>
+    </ol>
+
+    <h3>คำสั่งพื้นฐานที่รองรับ</h3>
+    <ul>
+      <li><strong>help</strong> / <strong>ช่วย</strong></li>
+      <li><strong>ping</strong> → pong</li>
+      <li><strong>สวัสดี</strong> → ทักทาย</li>
+      <li><strong>echo &lt;ข้อความ&gt;</strong> → ส่งข้อความกลับ</li>
+      <li>การคำนวณ เช่น <code>2 + 3</code> หรือ <code>2 บวก 3</code></li>
+      <li><strong>status</strong> / <strong>สถานะ</strong> → แสดงเวลาที่ webhook ถูกเรียกล่าสุด</li>
+    </ul>
+
+    <p>หมายเหตุ: สถานะเก็บแบบไฟล์ชั่วคราว (data/status.json หรือ /tmp/status.json) — ถ้าต้องการเก็บถาวร ให้เชื่อมฐานข้อมูลจริง</p>
+
+    <p>ถ้ามีปัญหา "Not Found" สำหรับเส้นทาง <code>/</code> ให้ตรวจสอบว่าไฟล์ <code>index.html</code> อยู่ที่ root ของ repo หรือมี rewrite ให้ไปที่ <code>/api/index.js</code></p>
+  </div>
+</body>
+</html>
