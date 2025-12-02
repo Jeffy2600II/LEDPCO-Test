@@ -3,7 +3,6 @@ import { verifySignature, replyMessage, handleTextMessage } from '../../lib/line
 
 export const config = { api: { bodyParser: false } };
 
-// รับ body แบบ raw ไม่ block
 async function getRawBody(req) {
   const chunks = [];
   for await (const chunk of req) {
@@ -20,42 +19,44 @@ export default async function handler(req, res) {
   
   try {
     const raw = await getRawBody(req);
-    
     const signature = req.headers['x-line-signature'] || '';
     if (!verifySignature(raw, signature)) {
       return res.status(401).send('Invalid signature');
     }
     
-    const body = JSON.parse(raw.toString('utf8'));
-    if (!body || !Array.isArray(body.events)) return res.status(200).send('OK');
+    const bodyText = raw.toString('utf8');
+    const body = JSON.parse(bodyText);
     
-    // setLastWebhook ไม่ block I/O ถ้าซ้ำ
-    const nowIso = new Date().toISOString();
-    setLastWebhook(nowIso);
-    
-    // ทำ parallel task ทั้งหมด
-    await Promise.all(body.events.map(async (ev) => {
-      if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
-        const userText = ev.message.text;
-        const replyToken = ev.replyToken;
-        let replyText = handleTextMessage(userText);
-        
-        // status/สถานะ ดึงสถานะ memory ก่อน หรือ จัดการแบบเร็ว
-        if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
-          const statusObj = await getStatus();
-          replyText = statusObj.lastWebhookAt ?
-            `ระบบได้รับ Webhook ล่าสุดเมื่อ: ${statusObj.lastWebhookAt}` :
-            'ยังไม่พบการเชื่อมต่อกับ LINE';
+    if (body && Array.isArray(body.events)) {
+      const nowIso = new Date().toISOString();
+      await setLastWebhook(nowIso);
+      
+      // prepare array of operations to parallelize replies
+      const replyTasks = body.events.map(async (ev) => {
+        if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
+          const userText = ev.message.text;
+          const replyToken = ev.replyToken;
+          let replyText = handleTextMessage(userText);
+          
+          if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
+            const statusObj = await getStatus();
+            replyText = statusObj.lastWebhookAt ?
+              `ล่าสุดระบบได้รับ Webhook เมื่อ: ${statusObj.lastWebhookAt}` :
+              'ยังไม่พบการเชื่อมต่อจาก LINE';
+          }
+          if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+            // ไม่ต้อง await ทีละตัว ทำแบบ parallel
+            return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+          }
         }
-        
-        if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-          // ส่ง reply non-blocking
-          replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
-        }
-      }
-    }));
+      });
+      
+      // รอให้ทุกอัน reply เสร็จ (parallelizes tasks)
+      await Promise.all(replyTasks);
+    }
     return res.status(200).send('OK');
   } catch (err) {
+    console.error('Webhook Server Error:', err);
     return res.status(500).send('Server error: ' + (err?.message || 'unknown'));
   }
 }
