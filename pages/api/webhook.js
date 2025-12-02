@@ -41,27 +41,35 @@ export default async function handler(req, res) {
     const nowIso = new Date().toISOString();
     await setLastWebhook(nowIso);
     
-    // Prepare tasks for all incoming LINE events (batch)
+    // แก้ไขให้รองรับข้อความทั้ง text และ flex
     const replyTasks = body.events.map(async (ev) => {
       if (ev.type === 'message' && ev.message?.type === 'text') {
         const userText = ev.message.text;
         const replyToken = ev.replyToken;
         let replyText = handleTextMessage(userText);
-        // Fast status check, cache used
+        
+        // check status command (text fallback)
         if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
           const statusObj = await getStatus();
           replyText = statusObj.lastWebhookAt ?
             `Webhook ล่าสุด: ${statusObj.lastWebhookAt}` :
             'ยังไม่พบการเชื่อมต่อจาก LINE';
         }
+        
+        // หากเป็น Object (Flex Message) ให้ส่งแบบ object
+        let messagesToSend = null;
+        if (typeof replyText === 'object' && replyText !== null) {
+          messagesToSend = [replyText];
+        } else {
+          messagesToSend = [{ type: 'text', text: String(replyText) }];
+        }
+        
         if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-          return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+          return replyMessage(replyToken, messagesToSend);
         }
       }
     });
-    // ใช้ Promise.all เพื่อให้ทุก task ส่งตอบ LINE ได้เร็วสุดใน parallel
     await Promise.all(replyTasks);
   }
-  // ตอบ HTTP เร็วที่สุด (LINE รอ response นี้เท่านั้น ไม่ต้องรอ reply API)
   res.status(200).send('OK');
 }
