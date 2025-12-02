@@ -1,9 +1,6 @@
-name = "ledpco-test"
+name = "line-bot-broadcaster"
 main = "dist/index.js"
 compatibility_date = "2025-11-20"
-
-[site]
-bucket = "./dist"
 
 [env. production]
 vars = { ENVIRONMENT = "production" }
