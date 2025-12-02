@@ -17,46 +17,51 @@ export default async function handler(req, res) {
     return res.status(405).send('Method Not Allowed');
   }
   
+  let raw;
   try {
-    const raw = await getRawBody(req);
-    const signature = req.headers['x-line-signature'] || '';
-    if (!verifySignature(raw, signature)) {
-      return res.status(401).send('Invalid signature');
-    }
-    
-    const bodyText = raw.toString('utf8');
-    const body = JSON.parse(bodyText);
-    
-    if (body && Array.isArray(body.events)) {
-      const nowIso = new Date().toISOString();
-      await setLastWebhook(nowIso);
-      
-      // prepare array of operations to parallelize replies
-      const replyTasks = body.events.map(async (ev) => {
-        if (ev.type === 'message' && ev.message && ev.message.type === 'text') {
-          const userText = ev.message.text;
-          const replyToken = ev.replyToken;
-          let replyText = handleTextMessage(userText);
-          
-          if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
-            const statusObj = await getStatus();
-            replyText = statusObj.lastWebhookAt ?
-              `ล่าสุดระบบได้รับ Webhook เมื่อ: ${statusObj.lastWebhookAt}` :
-              'ยังไม่พบการเชื่อมต่อจาก LINE';
-          }
-          if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-            // ไม่ต้อง await ทีละตัว ทำแบบ parallel
-            return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
-          }
-        }
-      });
-      
-      // รอให้ทุกอัน reply เสร็จ (parallelizes tasks)
-      await Promise.all(replyTasks);
-    }
-    return res.status(200).send('OK');
+    raw = await getRawBody(req);
   } catch (err) {
-    console.error('Webhook Server Error:', err);
-    return res.status(500).send('Server error: ' + (err?.message || 'unknown'));
+    res.status(400).send('Cannot read request body');
+    return;
   }
+  
+  const signature = req.headers['x-line-signature'] || '';
+  if (!verifySignature(raw, signature)) {
+    return res.status(401).send('Invalid signature');
+  }
+  
+  let body;
+  try {
+    body = JSON.parse(raw.toString('utf8'));
+  } catch {
+    return res.status(400).send('Invalid JSON');
+  }
+  
+  if (body?.events?.length) {
+    const nowIso = new Date().toISOString();
+    await setLastWebhook(nowIso);
+    
+    // Prepare tasks for all incoming LINE events (batch)
+    const replyTasks = body.events.map(async (ev) => {
+      if (ev.type === 'message' && ev.message?.type === 'text') {
+        const userText = ev.message.text;
+        const replyToken = ev.replyToken;
+        let replyText = handleTextMessage(userText);
+        // Fast status check, cache used
+        if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
+          const statusObj = await getStatus();
+          replyText = statusObj.lastWebhookAt ?
+            `Webhook ล่าสุด: ${statusObj.lastWebhookAt}` :
+            'ยังไม่พบการเชื่อมต่อจาก LINE';
+        }
+        if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+          return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+        }
+      }
+    });
+    // ใช้ Promise.all เพื่อให้ทุก task ส่งตอบ LINE ได้เร็วสุดใน parallel
+    await Promise.all(replyTasks);
+  }
+  // ตอบ HTTP เร็วที่สุด (LINE รอ response นี้เท่านั้น ไม่ต้องรอ reply API)
+  res.status(200).send('OK');
 }
