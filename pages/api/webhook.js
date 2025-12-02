@@ -38,30 +38,34 @@ export default async function handler(req, res) {
   }
   
   if (body?.events?.length) {
+    // ⚡ Update webhook timestamp (ไม่ต้อง await)
     const nowIso = new Date().toISOString();
-    await setLastWebhook(nowIso);
+    setLastWebhook(nowIso).catch(err => console.warn('Failed to save webhook:', err));
     
-    // Prepare tasks for all incoming LINE events (batch)
-    const replyTasks = body.events.map(async (ev) => {
+    // ⚡ Process all events (non-blocking, fire-and-forget)
+    body.events.forEach(async (ev) => {
       if (ev.type === 'message' && ev.message?.type === 'text') {
         const userText = ev.message.text;
         const replyToken = ev.replyToken;
+        
         let replyText = handleTextMessage(userText);
-        // Fast status check, cache used
+        
+        // ⚡ Fast status check with cache
         if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
           const statusObj = await getStatus();
           replyText = statusObj.lastWebhookAt ?
             `Webhook ล่าสุด: ${statusObj.lastWebhookAt}` :
             'ยังไม่พบการเชื่อมต่อจาก LINE';
         }
+        
+        // ⚡ Non-blocking reply
         if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-          return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+          replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
         }
       }
     });
-    // ใช้ Promise.all เพื่อให้ทุก task ส่งตอบ LINE ได้เร็วสุดใน parallel
-    await Promise.all(replyTasks);
   }
-  // ตอบ HTTP เร็วที่สุด (LINE รอ response นี้เท่านั้น ไม่ต้องรอ reply API)
+  
+  // ⚡ ตอบ HTTP ให้ LINE ทันที (ไม่รอ reply API)
   res.status(200).send('OK');
 }
