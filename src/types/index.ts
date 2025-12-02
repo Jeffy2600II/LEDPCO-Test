@@ -1,9 +1,8 @@
-// ประเภทข้อมูลของระบบ
 export interface BotConnection {
   isConnected: boolean;
   lastConnectedAt: string | null;
   botId: string;
-  uptime: number; // milliseconds
+  uptime: number;
 }
 
 export interface CommandResult {
