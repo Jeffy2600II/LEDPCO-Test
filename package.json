@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev",
-    "build": "tsc",
+    "build": "tsc && node build.js",
     "deploy": "wrangler deploy"
   },
   "dependencies": {
