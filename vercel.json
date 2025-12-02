@@ -1,37 +1,5 @@
 {
   "version": 2,
   "buildCommand": "npm run build",
-  "outputDirectory": "dist",
-  "functions": {
-    "api/**/*. ts": {
-      "runtime": "nodejs24. x"
-    }
-  },
-  "routes": [
-    {
-      "src": "/webhook",
-      "dest": "/dist/index.js",
-      "methods": ["POST"]
-    },
-    {
-      "src": "/health",
-      "dest": "/dist/index.js",
-      "methods": ["GET"]
-    },
-    {
-      "src": "/dashboard(.*)",
-      "dest": "/dist/index.js",
-      "methods": ["GET"]
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "/dist/index.js",
-      "methods": ["GET"]
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/dist/index. js",
-      "methods": ["GET"]
-    }
-  ]
+  "outputDirectory": "dist"
 }
