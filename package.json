@@ -1,6 +1,19 @@
 {
+  "name": "line-bot-vercel-demo",
+  "version": "1.0.0",
+  "description": "LINE Bot + Web status demo for deploy on Vercel. No database/AI.",
+  "scripts": {
+    "dev": "next dev",
+    "build": "next build",
+    "start": "next start"
+  },
   "dependencies": {
-    "express": "^4.18.2",
-    "body-parser": "^1.20.2"
+    "next": "^13.4.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0"
+  },
+  "devDependencies": {},
+  "engines": {
+    "node": ">=16.0.0"
   }
 }
