@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+<! DOCTYPE html>
 <html lang="th">
 <head>
   <meta charset="UTF-8">
@@ -54,7 +54,7 @@
       text-align: center;
     }
 
-    .status-box.connected {
+    .status-box. connected {
       background: #d4edda;
       border: 2px solid #28a745;
     }
@@ -75,7 +75,7 @@
       margin-bottom: 10px;
     }
 
-    . status-box.connected .status-text {
+    .status-box.connected .status-text {
       color: #155724;
     }
 
@@ -422,7 +422,7 @@
 
         if (response.ok) {
           showMessage(
-            `✅ ส่งข้อความสำเร็จ!  (ส่งไปให้ ${data.sentTo} คน)`,
+            `✅ ส่งข้อความสำเร็จ! (ส่งไปให้ ${data.sentTo} คน)`,
             'success'
           );
           messageInput.value = '';
@@ -439,7 +439,7 @@
 
     function showMessage(text, type) {
       messageDiv.className = `status ${type}`;
-      messageDiv. innerHTML = text;
+      messageDiv.innerHTML = text;
     }
   </script>
 </body>
