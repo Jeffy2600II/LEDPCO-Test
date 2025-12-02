@@ -5,8 +5,6 @@ import { app } from '../src/index';
 // Wrap the express app so Vercel executes it as a serverless handler.
 export default async (req: VercelRequest, res: VercelResponse) => {
   try {
-    // Express app is callable as a function (req, res, next)
-    // cast to any to avoid TypeScript runtime signature mismatch
     return (app as any)(req, res);
   } catch (err) {
     console.error('Error in api handler:', err);
