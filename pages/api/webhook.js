@@ -37,31 +37,56 @@ export default async function handler(req, res) {
     return res.status(400).send('Invalid JSON');
   }
   
-  if (body?.events?.length) {
-    const nowIso = new Date().toISOString();
-    await setLastWebhook(nowIso);
-    
-    // Prepare tasks for all incoming LINE events (batch)
-    const replyTasks = body.events.map(async (ev) => {
-      if (ev.type === 'message' && ev.message?.type === 'text') {
-        const userText = ev.message.text;
-        const replyToken = ev.replyToken;
-        let replyText = handleTextMessage(userText);
-        // Fast status check, cache used
-        if (/^สถานะ$|^status$/i.test(String(userText).trim().toLowerCase())) {
-          const statusObj = await getStatus();
-          replyText = statusObj.lastWebhookAt ?
-            `Webhook ล่าสุด: ${statusObj.lastWebhookAt}` :
-            'ยังไม่พบการเชื่อมต่อจาก LINE';
-        }
-        if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
-          return replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
-        }
-      }
-    });
-    // ใช้ Promise.all เพื่อให้ทุก task ส่งตอบ LINE ได้เร็วสุดใน parallel
-    await Promise.all(replyTasks);
+  // If no events, respond OK quickly
+  if (!body?.events?.length) {
+    res.status(200).send('OK');
+    return;
   }
-  // ตอบ HTTP เร็วที่สุด (LINE รอ response นี้เท่านั้น ไม่ต้องรอ reply API)
+  
+  const nowIso = new Date().toISOString();
+  
+  // Respond to LINE as soon as possible — schedule background processing afterwards
   res.status(200).send('OK');
+  
+  // Background processing: update status and send replies.
+  // We use an async IIFE but do NOT await it here (fire-and-forget).
+  (async () => {
+    try {
+      await setLastWebhook(nowIso);
+      
+      // Prepare reply tasks
+      const replyTasks = body.events.map(async (ev) => {
+        try {
+          if (ev.type === 'message' && ev.message?.type === 'text') {
+            const userText = ev.message.text;
+            const replyToken = ev.replyToken;
+            
+            // Fast status check overrides handler if status command
+            let replyText = handleTextMessage(userText);
+            if (/^สถานะ$|^status$/i.test(String(userText).trim())) {
+              const statusObj = await getStatus();
+              replyText = statusObj.lastWebhookAt ?
+                `Webhook ล่าสุด: ${statusObj.lastWebhookAt}` :
+                'ยังไม่พบการเชื่อมต่อจาก LINE';
+            }
+            
+            if (replyToken && process.env.LINE_CHANNEL_ACCESS_TOKEN) {
+              // Fire-and-forget the reply; still await here so we can catch per-message errors
+              await replyMessage(replyToken, [{ type: 'text', text: String(replyText) }]);
+            }
+          }
+        } catch (err) {
+          console.error('Error handling event:', err, ev && ev.type ? `event:${ev.type}` : '');
+        }
+      });
+      
+      // Wait for scheduled replyTasks to finish in this background worker
+      await Promise.all(replyTasks);
+    } catch (err) {
+      console.error('Background processing failed:', err);
+    }
+  })();
+  
+  // Handler returns immediately (we already sent response)
+  return;
 }
