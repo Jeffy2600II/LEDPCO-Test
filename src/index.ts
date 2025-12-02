@@ -5,33 +5,28 @@ interface Env {
   LINE_CHANNEL_SECRET: string;
 }
 
-// เก็บ User IDs ไว้ในหน่วยความจำ
 const userIds = new Set<string>();
-
 const router = Router();
 
-// ✅ System คำสั่ง
-const commands: Record<string, string> = {
-  '/help': `📋 คำสั่งที่ใช้ได้:
-/help - ดูคำสั่งทั้งหมด
-/status - ดูสถานะปัจจุบัน
-/ping - เช็ค connection
-/users - ดูจำนวนผู้ใช้ที่ connect
-/clear - ล้างข้อมูลผู้ใช้ทั้งหมด`,
+// ✅ เพิ่มบรรทัดนี้ให้ serve HTML จาก static files
+router.get('/', async () => {
+  try {
+    // Cloudflare Workers Site จะเก็บ static files ที่ `__STATIC_CONTENT`
+    const response = await fetch(new URL('/index.html', 'https://workers. cloudflare.com'), {
+      cf: { cacheTtl: 3600 }
+    } as any);
+    
+    if (response.ok) {
+      return response;
+    }
+  } catch (e) {
+    console.error('Static file error:', e);
+  }
+  
+  return new Response('Not Found', { status: 404 });
+});
 
-  '/status': `✅ ระบบปกติการใช้งาน
-🤖 Bot: Online
-🌐 API: Active
-📊 Status: Ready`,
-
-  '/ping': `🏓 Pong! ⏱️ ${Date.now()}ms`,
-
-  '/users': `👥 ผู้ใช้ที่ connect ทั้งสิ้น: ${userIds.size} คน`,
-
-  '/clear': `🗑️ ล้างข้อมูลผู้ใช้ทั้งหมด (Admin only)`
-};
-
-// Webhook endpoint for Line Bot
+// Webhook endpoint
 router.post('/webhook', async (request: Request, env: Env) => {
   try {
     const body = await request.json() as any;
@@ -39,43 +34,50 @@ router.post('/webhook', async (request: Request, env: Env) => {
     if (body.events && Array.isArray(body.events)) {
       for (const event of body.events) {
         if (event.type === 'follow') {
-          userIds.add(event.source. userId);
+          userIds.add(event.source.userId);
           console.log('User followed:', event.source.userId);
           
-          // ✅ ส่งข้อความต้อนรับให้ผู้ใช้
           await fetch('https://api.line.me/v2/bot/message/push', {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${env. LINE_CHANNEL_ACCESS_TOKEN}`
+              'Authorization': `Bearer ${env.LINE_CHANNEL_ACCESS_TOKEN}`
             },
-            body: JSON.stringify({
+            body: JSON. stringify({
               to: event.source.userId,
-              messages: [
-                {
-                  type: 'text',
-                  text: 'ยินดีต้อนรับ! 👋\nพิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้'
-                }
-              ]
+              messages: [{
+                type: 'text',
+                text: 'ยินดีต้อนรับ!  👋\nพิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้'
+              }]
             })
           });
           
         } else if (event.type === 'unfollow') {
-          userIds.delete(event.source.userId);
-          console.log('User unfollowed:', event.source. userId);
+          userIds.delete(event. source.userId);
+          console. log('User unfollowed:', event.source.userId);
           
         } else if (event.type === 'message' && event.message.type === 'text') {
           const userId = event.source.userId;
           const messageText = event.message.text. trim();
           
-          // ✅ เพิ่ม User ID
           userIds.add(userId);
           
-          // ✅ เช็คว่าเป็นคำสั่งหรือไม่
           if (messageText. startsWith('/')) {
+            const commands: Record<string, string> = {
+              '/help': `📋 คำสั่งที่ใช้ได้:
+/help - ดูคำสั่งทั้งหมด
+/status - ดูสถานะปัจจุบัน
+/ping - เช็ค connection
+/users - ดูจำนวนผู้ใช้ที่ connect`,
+              '/status': `✅ ระบบปกติการใช้งาน
+🤖 Bot: Online
+🌐 API: Active`,
+              '/ping': `🏓 Pong!  ⏱️ ${Date.now()}ms`,
+              '/users': `👥 ผู้ใช้ที่ connect ทั้งสิ้น: ${userIds.size} คน`
+            };
+
             const command = messageText.toLowerCase();
             
-            // ตอบกลับตามคำสั่ง
             if (commands[command]) {
               await fetch('https://api.line.me/v2/bot/message/push', {
                 method: 'POST',
@@ -85,16 +87,13 @@ router.post('/webhook', async (request: Request, env: Env) => {
                 },
                 body: JSON.stringify({
                   to: userId,
-                  messages: [
-                    {
-                      type: 'text',
-                      text: commands[command]
-                    }
-                  ]
+                  messages: [{
+                    type: 'text',
+                    text: commands[command]
+                  }]
                 })
               });
             } else {
-              // ถ้าคำสั่งไม่ถูก ก็ตอบว่าไม่รู้จัก
               await fetch('https://api.line.me/v2/bot/message/push', {
                 method: 'POST',
                 headers: {
@@ -103,18 +102,13 @@ router.post('/webhook', async (request: Request, env: Env) => {
                 },
                 body: JSON.stringify({
                   to: userId,
-                  messages: [
-                    {
-                      type: 'text',
-                      text: `❌ ไม่รู้จักคำสั่ง "${messageText}"\nพิมพ์ /help เพื่อดูคำสั่งที่ใช้ได้`
-                    }
-                  ]
+                  messages: [{
+                    type: 'text',
+                    text: `❌ ไม่รู้จักคำสั่ง "${messageText}"\nพิมพ์ /help เพื่อดูคำสั่ง`
+                  }]
                 })
               });
             }
-          } else {
-            // ถ้าไม่ใช่คำสั่ง ก็เพิ่งเก็บข้อความ
-            console.log('User sent message:', userId, messageText);
           }
         }
       }
@@ -133,19 +127,18 @@ router.post('/webhook', async (request: Request, env: Env) => {
   }
 });
 
-// API endpoint for broadcasting messages (จากเว็บ)
+// API broadcast
 router.post('/api/broadcast', async (request: Request, env: Env) => {
   try {
     const { message } = await request.json() as { message: string };
 
-    if (!  message || message.trim(). length === 0) {
+    if (! message || message.trim(). length === 0) {
       return new Response(JSON.stringify({ error: 'Message is required' }), {
         status: 400,
         headers: { 'Content-Type': 'application/json' }
       });
     }
 
-    // ส่งข้อความไปทุกคน
     const promises = Array.from(userIds).map(userId =>
       fetch('https://api.line.me/v2/bot/message/push', {
         method: 'POST',
@@ -155,29 +148,21 @@ router.post('/api/broadcast', async (request: Request, env: Env) => {
         },
         body: JSON. stringify({
           to: userId,
-          messages: [
-            {
-              type: 'text',
-              text: message
-            }
-          ]
+          messages: [{ type: 'text', text: message }]
         })
       })
     );
 
     await Promise.all(promises);
 
-    return new Response(
-      JSON.stringify({
-        status: 'success',
-        sentTo: userIds.size,
-        message: 'Message broadcasted successfully'
-      }),
-      {
-        status: 200,
-        headers: { 'Content-Type': 'application/json' }
-      }
-    );
+    return new Response(JSON.stringify({
+      status: 'success',
+      sentTo: userIds.size,
+      message: 'Message broadcasted successfully'
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' }
+    });
   } catch (error) {
     console.error('Broadcast error:', error);
     return new Response(JSON.stringify({ error: 'Internal Server Error' }), {
@@ -187,21 +172,17 @@ router.post('/api/broadcast', async (request: Request, env: Env) => {
   }
 });
 
-// Get active users count
+// Status
 router.get('/api/status', () => {
-  return new Response(
-    JSON.stringify({
-      activeUsers: userIds.size,
-      userIds: Array.from(userIds)
-    }),
-    {
-      status: 200,
-      headers: { 'Content-Type': 'application/json' }
-    }
-  );
+  return new Response(JSON.stringify({
+    activeUsers: userIds.size,
+    userIds: Array.from(userIds)
+  }), {
+    status: 200,
+    headers: { 'Content-Type': 'application/json' }
+  });
 });
 
-// Fallback
 router.all('*', () => new Response('Not Found', { status: 404 }));
 
 export default router;
