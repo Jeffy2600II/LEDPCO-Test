@@ -1,6 +1,0 @@
-name = "line-bot-broadcaster"
-main = "dist/index.js"
-compatibility_date = "2025-11-20"
-
-[env. production]
-vars = { ENVIRONMENT = "production" }
